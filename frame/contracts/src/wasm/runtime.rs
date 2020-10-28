@@ -807,6 +807,12 @@ define_env!(Env, <E: Ext>,
 	// length to `output_len_ptr`. The copy of the output buffer and address can be skipped by
 	// supplying the sentinel value of `u32::max_value()` to `output_ptr` or `address_ptr`.
 	//
+	// `salt` determines how the address of the new contract is derived:
+	// - u64::max_value(): See `address_from_account_nonce`
+	// - otherwise: See `address_predictable`
+	// This means u64::max_value() is the magic value to opt out of predictable address
+	// deriviation. Therefore it cannot be used as a salt.
+	//
 	// After running the constructor it is verfied that the contract account holds at
 	// least the subsistence threshold. If that is not the case the instantion fails and
 	// the contract is not created.
@@ -827,6 +833,7 @@ define_env!(Env, <E: Ext>,
 	// - output_ptr: a pointer where the output buffer is copied to.
 	// - output_len_ptr: in-out pointer to where the length of the buffer is read from
 	//   and the actual length is written to.
+	// - salt: Optional input to the address deriviation.
 	//
 	// # Errors
 	//
@@ -854,13 +861,19 @@ define_env!(Env, <E: Ext>,
 		address_ptr: u32,
 		address_len_ptr: u32,
 		output_ptr: u32,
-		output_len_ptr: u32
+		output_len_ptr: u32,
+		salt: u64
 	) -> ReturnCode => {
 		ctx.charge_gas(RuntimeToken::InstantiateBase(input_data_len))?;
 		let code_hash: CodeHash<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(code_hash_ptr, code_hash_len)?;
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr, value_len)?;
 		let input_data = ctx.read_sandbox_memory(input_data_ptr, input_data_len)?;
+		let salt = if salt == u64::max_value() {
+			None
+		} else {
+			Some(salt)
+		};
 
 		let nested_gas_limit = if gas == 0 {
 			ctx.gas_meter.gas_left()
@@ -875,7 +888,8 @@ define_env!(Env, <E: Ext>,
 						&code_hash,
 						value,
 						nested_meter,
-						input_data
+						input_data,
+						salt,
 					)
 				}
 				// there is not enough gas to allocate for the nested call.
